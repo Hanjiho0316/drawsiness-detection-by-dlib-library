@@ -1,56 +1,40 @@
-Drowsiness Detection by Dlib Library
+# Drowsiness Detection by Dlib Library
+![Python](https://img.shields.io/badge/python-3.x-blue.svg)
+![OpenCV](https://img.shields.io/badge/OpenCV-Enabled-green.svg)
+![License](https://img.shields.io/badge/license-MIT-lightgrey.svg)
 
-This project implements a drowsiness detection system using the Dlib library in Python.
-The system monitors a person’s eyes through a webcam feed and detects signs of drowsiness (such as prolonged eye closure) in real time.
+A real-time **drowsiness detection system** using the **Dlib library** and **OpenCV**.  
+The system monitors eye aspect ratio (EAR) from facial landmarks and triggers an alert if drowsiness is detected.
 
-Features
+---
 
-Face and landmark detection using Dlib
+## Features
+- 🔹 Face and landmark detection using **Dlib**
+- 🔹 Real-time webcam monitoring
+- 🔹 Eye Aspect Ratio (EAR)–based drowsiness detection
+- 🔹 Easy to extend and customize
 
-Eye aspect ratio (EAR) calculation to measure eye closure
+---
 
-Real-time webcam feed monitoring
-
-Alerts when drowsiness is detected
-
-Requirements
-
-Python 3.x
-
-Dlib
-
-OpenCV
-
-NumPy
-
-Install the required libraries with:
-
+## Installation
+```bash
 pip install opencv-python dlib numpy
-
 Usage
-
-Clone the repository:
-
+bash
+Copy code
 git clone https://github.com/your-username/drawsiness-detection-by-dlib-library.git
-
-
-Run the script:
-
+cd drawsiness-detection-by-dlib-library
 python main.py
+Demo
 
-
-The system will start your webcam and display the detection window.
-
+Example Output
+csharp
+Copy code
+[INFO] Starting webcam stream...
+[ALERT] Drowsiness detected!
 Applications
+🚗 Driver drowsiness monitoring
 
-Driver drowsiness monitoring
+🏭 Workplace safety systems
 
-Workplace safety systems
-
-Real-time fatigue detection
-
-Notes
-
-Ensure you have Dlib properly installed (it may require CMake and Visual Studio Build Tools on Windows).
-
-The accuracy of detection depends on lighting conditions and webcam quality.
+🖥️ Real-time fatigue detection
