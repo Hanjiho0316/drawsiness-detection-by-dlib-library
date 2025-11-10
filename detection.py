@@ -16,9 +16,6 @@ PREDICTOR_PATH = "/Users/hanjiho/Desktop/eye detect/eye_blink_detector-master/fa
 SAVE_PATH = "/Users/hanjiho/Desktop/eye detect/eye_blink_detector-master/face recognition/best_multitask_model.pth"
 
 EYE_CROP_PADDING = 20
-# (임계값 대신 숫자 매핑을 사용하므로 임계값 설정 제거)
-# GAZE_THRESHOLD_LEFT = 0.4
-# GAZE_THRESHOLD_RIGHT = 0.6
 
 # -------------------
 # 2️⃣ dlib + MediaPipe 초기화
@@ -87,12 +84,47 @@ transform = transforms.Compose([
 ])
 
 # -------------------
+# 🔴 NEW: 5.5️⃣ Head Pose (PnP) 설정을 위한 변수
+# -------------------
+# PnP를 위한 3D 얼굴 모델 포인트 (MediaPipe 랜드마크 기준)
+# 스케일은 중요하지 않으며, 상대적인 위치가 중요함.
+model_points = np.array([
+    (0.0, 0.0, 0.0),             # 1. 코 끝 (Nose tip)
+    (0.0, -330.0, -65.0),        # 152. 턱 (Chin)
+    (-225.0, 170.0, -135.0),     # 33. 왼쪽 눈 왼쪽 끝 (Left eye left corner)
+    (225.0, 170.0, -135.0),      # 263. 오른쪽 눈 오른쪽 끝 (Right eye right corner)
+    (-150.0, -150.0, -125.0),    # 61. 왼쪽 입 끝 (Left mouth corner)
+    (150.0, -150.0, -125.0)      # 291. 오른쪽 입 끝 (Right mouth corner)
+])
+
+# 카메라 매트릭스 (웹캠 크기에 따라 루프 진입 전 설정)
+camera_matrix = np.zeros((3,3))
+dist_coeffs = np.zeros((4, 1)) # 렌즈 왜곡 없다고 가정
+
+# -------------------
 # 6️⃣ 웹캠 실행
 # -------------------
 cap = cv2.VideoCapture(0)
 if not cap.isOpened():
     print("오류: 웹캠을 열 수 없습니다.")
     exit()
+
+# 🔴 NEW: PnP를 위해 프레임 크기를 먼저 읽어와서 카메라 매트릭스 설정
+ret, frame = cap.read()
+if not ret:
+    print("오류: 웹캠에서 첫 프레임을 읽을 수 없습니다.")
+    cap.release()
+    exit()
+    
+h, w, _ = frame.shape
+FOCAL_LENGTH_ESTIMATE = w # 간단한 추정 (일반적으로 w와 비슷)
+camera_matrix = np.array([
+    [FOCAL_LENGTH_ESTIMATE, 0, w / 2],
+    [0, FOCAL_LENGTH_ESTIMATE, h / 2],
+    [0, 0, 1]
+], dtype="double")
+print(f"Frame (h, w) = ({h}, {w}). PnP용 Camera matrix 초기화 완료.")
+
 
 blink_flag = False
 blink_count = 0
@@ -115,6 +147,10 @@ while True:
     
     face_detected = False
     gaze_text = "N/A" # 시선 기본값 (문자열로 유지)
+    
+    # 🔴 NEW: 헤드 포즈 변수 초기화
+    head_pitch = 0.0
+    head_yaw = 0.0
     
     img_tensor = torch.zeros((1, 3, 224, 224), dtype=torch.float32).to(DEVICE)
     features_tensor = torch.zeros((1, feature_dim), dtype=torch.float32).to(DEVICE)
@@ -144,7 +180,7 @@ while True:
             face_detected = False
 
         # --- 2. 모델 입력 (특징) 준비 (dlib + MediaPipe) ---
-        h, w, _ = frame.shape
+        # h, w 는 루프 밖에서 이미 정의됨
         dlib_coords = []
         for p in shape.parts():
             dlib_coords.extend([p.x / w, p.y / h]) 
@@ -155,12 +191,64 @@ while True:
             landmarks = results.multi_face_landmarks[0].landmark 
             mp_coords = []
             
+            # 🔴 NEW: Head Pose (PnP) 계산 (MediaPipe 랜드마크 사용)
+            try:
+                # PnP에 사용할 2D 이미지 포인트
+                image_points = np.array([
+                    (landmarks[1].x * w, landmarks[1].y * h),    # 1. Nose
+                    (landmarks[152].x * w, landmarks[152].y * h), # 152. Chin
+                    (landmarks[33].x * w, landmarks[33].y * h),   # 33. Left eye corner
+                    (landmarks[263].x * w, landmarks[263].y * h), # 263. Right eye corner
+                    (landmarks[61].x * w, landmarks[61].y * h),   # 61. Left mouth corner
+                    (landmarks[291].x * w, landmarks[291].y * h)  # 291. Right mouth corner
+                ], dtype="double")
+                
+                (success, rotation_vector, translation_vector) = cv2.solvePnP(
+                    model_points, 
+                    image_points, 
+                    camera_matrix, 
+                    dist_coeffs,
+                    flags=cv2.SOLVEPNP_ITERATIVE # (cv2.SOLVEPNP_SQPNP or cv2.SOLVEPNP_ITERATIVE)
+                )
+                
+                # 회전 벡터를 Euler 각도로 변환 (Yaw, Pitch, Roll)
+                rotation_matrix, _ = cv2.Rodrigues(rotation_vector)
+                
+                sy = np.sqrt(rotation_matrix[0, 0]**2 + rotation_matrix[1, 0]**2)
+                singular = sy < 1e-6
+                
+                if not singular:
+                    head_pitch = np.arctan2(-rotation_matrix[2, 0], sy) * 180 / np.pi
+                    head_yaw = np.arctan2(rotation_matrix[1, 0], rotation_matrix[0, 0]) * 180 / np.pi
+                    # head_roll = np.arctan2(rotation_matrix[2, 1], rotation_matrix[2, 2]) * 180 / np.pi
+                else:
+                    head_pitch = np.arctan2(-rotation_matrix[2, 0], sy) * 180 / np.pi
+                    head_yaw = np.arctan2(-rotation_matrix[0, 1], rotation_matrix[1, 1]) * 180 / np.pi
+                    # head_roll = 0.0
+                
+                # 🔴 NEW: PnP 결과 (얼굴 방향) 시각화 (보라색 선)
+                (nose_end_point2D, _) = cv2.projectPoints(
+                    np.array([(0.0, 0.0, 500.0)]), # 코 끝(0,0,0)에서 Z축(정면)으로 500mm
+                    rotation_vector, 
+                    translation_vector, 
+                    camera_matrix, 
+                    dist_coeffs
+                )
+                p1 = (int(image_points[0][0]), int(image_points[0][1])) # 코 끝
+                p2 = (int(nose_end_point2D[0][0][0]), int(nose_end_point2D[0][0][1]))
+                cv2.arrowedLine(frame, p1, p2, (255, 0, 255), 3) # 보라색
+                    
+            except Exception as e:
+                # print(f"Head pose PnP error: {e}")
+                head_pitch, head_yaw = 0.0, 0.0
+            
+            # (기존 코드) 특징 벡터 준비
             for i in range(468):
                 lm = landmarks[i]
                 mp_coords.extend([lm.x, lm.y, lm.z])
             mp_f = np.array(mp_coords)
 
-            # --- 🔴 3. 시선 추정 (MediaPipe 동공) - 숫자 매핑으로 수정 ---
+            # --- 🔴 3. 시선 추정 (MediaPipe 동공) - 숫자 매핑 (기존 유지) ---
             try:
                 outer_corner_x = landmarks[33].x
                 inner_corner_x = landmarks[133].x
@@ -168,17 +256,9 @@ while True:
                 
                 eye_width = abs(inner_corner_x - outer_corner_x)
                 if eye_width > 0: 
-                    # 0.0 ~ 1.0 사이의 상대 위치
                     pupil_pos = (pupil_x - outer_corner_x) / eye_width
-
-                    # 0.0~1.0 범위를 -1.0~1.0 범위로 매핑 (0.5가 0.0이 됨)
                     gaze_value = (pupil_pos - 0.5) * 2.0
-                    
-                    # (참고) 프레임이 반전되었으므로,
-                    # gaze_value < 0 -> 사용자가 왼쪽을 봄
-                    # gaze_value > 0 -> 사용자가 오른쪽을 봄
-                    
-                    gaze_text = f"{gaze_value:.2f}" # 숫자를 문자열로 포맷팅
+                    gaze_text = f"{gaze_value:.2f}"
                     
             except Exception as e:
                 gaze_text = "Error"
@@ -190,7 +270,7 @@ while True:
         face_detected = False
 
     # --- 4. 모델 추론 (깜빡임) ---
-    pred = 1 # 기본값 'Open'
+    pred = 1 
     if face_detected:
         with torch.no_grad():
             blink_out = model(img_tensor, features_tensor)
@@ -206,12 +286,14 @@ while True:
         if blink_flag:
             blink_flag = False
             blink_count += 1
-            print(f"Blink! (Total: {blink_count})")
+            # print(f"Blink! (Total: {blink_count})") # 콘솔 출력 줄임
 
     # --- 6. 화면 표시 (수정됨) ---
     if not face_detected:
         status_text = "Face Not Detected"
         status_color = (0, 0, 255)
+        gaze_text = "N/A"
+        head_yaw, head_pitch = 0.0, 0.0 # N/A로 표시되도록 리셋
     else:
         status_text = "Closed" if pred == 0 else "Open"
         status_color = (0, 0, 255) if pred == 0 else (0, 255, 0)
@@ -219,11 +301,27 @@ while True:
     cv2.putText(frame, f"Status: {status_text}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.9, status_color, 2)
     cv2.putText(frame, f"Blink Count: {blink_count}", (10, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 0, 0), 2)
     
-    # ### 🔴 수정: 시선 텍스트가 숫자로 표시됨 ###
+    # ### 🔴 NEW: 시선 텍스트 + 헤드 포즈 각도 표시 ###
+    gaze_display_color = (128, 128, 128) # 기본값 (회색)
+    
     if pred == 1 and face_detected: 
-        cv2.putText(frame, f"Gaze: {gaze_text}", (10, 110), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+        # 눈을 떴고 얼굴이 감지되었을 때만 시선/각도 표시
+        gaze_display_color = (0, 255, 255) # 노란색
+        
+        # 1. 동공 기준 (상대 위치)
+        cv2.putText(frame, f"Pupil Pos: {gaze_text}", (10, 110), cv2.FONT_HERSHEY_SIMPLEX, 0.7, gaze_display_color, 2)
+        
+        # 2. 얼굴 각도 (PnP)
+        # Yaw (좌우), Pitch (상하)
+        cv2.putText(frame, f"Head Yaw (L/R): {head_yaw:.1f} deg", (10, 140), cv2.FONT_HERSHEY_SIMPLEX, 0.7, gaze_display_color, 2)
+        cv2.putText(frame, f"Head Pitch (U/D): {head_pitch:.1f} deg", (10, 170), cv2.FONT_HERSHEY_SIMPLEX, 0.7, gaze_display_color, 2)
+    
     else:
-        cv2.putText(frame, f"Gaze: N/A", (10, 110), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (128, 128, 128), 2)
+        # 얼굴이 없거나 눈을 감았을 때
+        cv2.putText(frame, f"Pupil Pos: N/A", (10, 110), cv2.FONT_HERSHEY_SIMPLEX, 0.7, gaze_display_color, 2)
+        cv2.putText(frame, f"Head Yaw (L/R): N/A", (10, 140), cv2.FONT_HERSHEY_SIMPLEX, 0.7, gaze_display_color, 2)
+        cv2.putText(frame, f"Head Pitch (U/D): N/A", (10, 170), cv2.FONT_HERSHEY_SIMPLEX, 0.7, gaze_display_color, 2)
+
 
     cv2.imshow("Blink Detection + Gaze (ESC to exit)", frame)
 
