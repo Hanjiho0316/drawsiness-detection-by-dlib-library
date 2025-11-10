@@ -9,6 +9,8 @@ from tqdm import tqdm
 from torchvision import transforms
 from torch import nn
 from torchvision import models
+import matplotlib.pyplot as plt  # ----- [추가됨]
+import random  # ----- [추가됨]
 
 # ------------------- 설정 -------------------
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -16,6 +18,8 @@ PREDICTOR_PATH = r"C:\Users\FORYOUCOM\Desktop\CT preprocessing\face recognition\
 DATA_ROOT = r"C:\Users\FORYOUCOM\Desktop\CT preprocessing\face recognition\data_cropped"
 MODEL_PATH = r"C:\Users\FORYOUCOM\Desktop\CT preprocessing\face recognition\best_blink_eye_model.pth"
 SAVE_CSV = r"C:\Users\FORYOUCOM\Desktop\CT preprocessing\face recognition\comparison_results.csv"
+SAVE_PLOT = r"C:\Users\FORYOUCOM\Desktop\CT preprocessing\face recognition\accuracy_comparison.png"  # ----- [추가됨]
+SAVE_LANDMARK_IMG = r"C:\Users\FORYOUCOM\Desktop\CT preprocessing\face recognition\landmark_comparison.jpg"  # ----- [추가됨]
 
 # ------------------- 모델 정의 -------------------
 class MultiTaskBlinkModel(nn.Module):
@@ -31,14 +35,12 @@ class MultiTaskBlinkModel(nn.Module):
             nn.Dropout(0.3)
         )
 
-        # Blink(눈감김) output
         self.blink_fc = nn.Sequential(
             nn.Linear(512 + img_dim, 256),
             nn.ReLU(),
             nn.Linear(256, blink_classes)
         )
 
-        # Eye(눈인식) output
         self.eye_fc = nn.Sequential(
             nn.Linear(512 + img_dim, 256),
             nn.ReLU(),
@@ -49,7 +51,6 @@ class MultiTaskBlinkModel(nn.Module):
         img_feat = self.cnn(img)
         feat = self.feature_fc(features)
         combined = torch.cat((img_feat, feat), dim=1)
-
         blink_out = self.blink_fc(combined)
         eye_out = self.eye_fc(combined)
         return blink_out, eye_out
@@ -65,11 +66,9 @@ def extract_features(image):
     if len(rects) == 0:
         return None, None, None
 
-    # dlib landmarks
     shape = predictor(gray, rects[0])
     dlib_pts = np.array([[p.x, p.y] for p in shape.parts()])
 
-    # mediapipe landmarks
     rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     results = mp_face.process(rgb)
     mp_pts = None
@@ -79,7 +78,6 @@ def extract_features(image):
             mp_pts.extend([lm.x, lm.y, lm.z])
         mp_pts = np.array(mp_pts)
 
-    # 눈 중심 좌표
     left_eye_idx = [36, 37, 38, 39, 40, 41]
     right_eye_idx = [42, 43, 44, 45, 46, 47]
     left_eye_center = np.mean(dlib_pts[left_eye_idx], axis=0)
@@ -87,7 +85,7 @@ def extract_features(image):
 
     return dlib_pts.flatten(), mp_pts, (left_eye_center, right_eye_center)
 
-# EAR 계산 (dlib baseline)
+# EAR 계산
 def eye_aspect_ratio(eye):
     A = np.linalg.norm(eye[1] - eye[5])
     B = np.linalg.norm(eye[2] - eye[4])
@@ -129,7 +127,7 @@ transform = transforms.Compose([
 def model_predict(img_path):
     img = cv2.imread(img_path)
     if img is None:
-        return None, None
+        return None, None, None
     dlib_f, mp_f, eyes = extract_features(img)
     if dlib_f is None:
         dlib_f = np.zeros(68*2)
@@ -147,7 +145,7 @@ def model_predict(img_path):
     return blink_pred, eye_pred, eyes
 
 # ------------------- 데이터 루프 -------------------
-categories = ["active", "sleep"]  # 눈 감김 레이블
+categories = ["active", "sleep"]
 records = []
 
 for cls_idx, cls_name in enumerate(categories):
@@ -160,7 +158,6 @@ for cls_idx, cls_name in enumerate(categories):
         if ear is None or blink_pred is None:
             continue
 
-        # dlib 기준 눈감김 예측
         dlib_pred = 1 if ear >= 0.21 else 0
 
         records.append({
@@ -181,7 +178,6 @@ df = pd.DataFrame(records)
 dlib_acc = (df["label"] == df["dlib_pred"]).mean()
 model_acc = (df["label"] == df["model_blink_pred"]).mean()
 
-# 눈 중심 오차 계산 (픽셀 단위 거리)
 eye_diff = np.sqrt((df["dlib_left_x"] - df["model_left_x"])**2 + (df["dlib_left_y"] - df["model_left_y"])**2)
 mean_eye_diff = np.nanmean(eye_diff)
 
@@ -191,3 +187,40 @@ print(f"👁️ Mean Eye Position Difference: {mean_eye_diff:.2f} pixels")
 
 df.to_csv(SAVE_CSV, index=False)
 print(f"\nResults saved to: {SAVE_CSV}")
+
+# ------------------- 시각화 -------------------
+# 정확도 비교 막대그래프 저장 ----- [추가됨]
+plt.figure(figsize=(5,5))
+plt.bar(["Dlib", "Model"], [dlib_acc, model_acc], color=["skyblue", "salmon"])
+plt.ylim(0, 1)
+plt.ylabel("Accuracy")
+plt.title("Blink Detection Accuracy Comparison")
+for i, acc in enumerate([dlib_acc, model_acc]):
+    plt.text(i, acc + 0.02, f"{acc:.2f}", ha='center', fontsize=12)
+plt.savefig(SAVE_PLOT)
+plt.close()
+print(f"📊 Accuracy comparison plot saved to: {SAVE_PLOT}")
+
+# ------------------- 랜드마크 시각화 -------------------
+# 임의의 이미지 하나 선택 ----- [추가됨]
+sample_cls = random.choice(categories)
+sample_folder = os.path.join(DATA_ROOT, sample_cls)
+sample_img = random.choice([os.path.join(sample_folder, f) for f in os.listdir(sample_folder) if f.lower().endswith(('.jpg','.png'))])
+
+img = cv2.imread(sample_img)
+dlib_f, mp_f, eyes = extract_features(img)
+
+if dlib_f is not None:
+    dlib_pts = dlib_f.reshape(-1, 2)
+    for (x, y) in dlib_pts:
+        cv2.circle(img, (int(x), int(y)), 1, (0, 255, 0), -1)  # 초록색 점
+
+if mp_f is not None:
+    h, w, _ = img.shape
+    mp_pts = mp_f.reshape(-1, 3)
+    for (x, y, z) in mp_pts[::15]:  # 일부만 표시 (성능 위해)
+        cv2.circle(img, (int(x * w), int(y * h)), 1, (0, 0, 255), -1)  # 빨간색 점
+
+cv2.imwrite(SAVE_LANDMARK_IMG, img)
+print(f"📷 Landmark visualization saved to: {SAVE_LANDMARK_IMG}")
+print(f"Sample image used: {sample_img}")
