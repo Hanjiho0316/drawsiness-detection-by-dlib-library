@@ -37,8 +37,6 @@ The model was trained and validated using several open datasets:
 | Purpose | Dataset | Source | Description |
 |----------|----------|--------|-------------|
 | Training | [CEW Dataset](https://www.kaggle.com/datasets/ahamedfarouk/cew-dataset) | Kaggle | Closed Eyes in the Wild – labeled open/closed eye images. |
-| Training | [ZJU Eyeblink Dataset](https://github.com/StephenVFig/ZJU-Eyeblink-Dataset) | ZJU | Blink sequences with head pose variation and glasses. |
-| Training | [RT-BENE](https://github.com/Tobias-Fischer/rt_gene) | ETH Zürich | Real-time blink estimation dataset with annotated eye states. |
 | Validation | [Drowness Detection Dataset](https://www.kaggle.com/datasets/norannabil/drowness-detection) | Kaggle | Used to evaluate model performance on real drowsy subjects. |
 
 These datasets collectively provide a wide range of lighting conditions, facial orientations, and drowsiness levels.
