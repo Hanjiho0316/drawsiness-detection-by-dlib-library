@@ -1,87 +1,114 @@
-# MultiModal Eye Blink Detection using Dlib, MediaPipe, and Transfer Learning  
+# MultiModal Eye Blink, Gaze, and Head Pose Detection
 ![Python](https://img.shields.io/badge/python-3.x-blue.svg)  
 ![PyTorch](https://img.shields.io/badge/PyTorch-Transfer_Learning-orange.svg)  
 ![OpenCV](https://img.shields.io/badge/OpenCV-Enabled-green.svg)  
+![Dlib](https://img.shields.io/badge/Dlib-Facial_Landmarks-blue.svg)  
+![MediaPipe](https://img.shields.io/badge/MediaPipe-Face_Mesh-purple.svg)  
 ![License](https://img.shields.io/badge/license-MIT-lightgrey.svg)
 
-A **multimodal eye blink detection system** using **eye-region images** and **facial landmarks**.  
-The system leverages **Dlib**, **MediaPipe**, and **CNN-based transfer learning** to predict **open/closed eye states** in real time.
+A **real-time multimodal system** for **eye blink detection**, **pupil-based gaze estimation**, and **head pose tracking**.  
+It leverages **Dlib 68-point landmarks**, **MediaPipe 468-point landmarks**, and **ResNet18-based CNN features** for robust multimodal inference.
 
 ---
 
-## 🚀 Overview  
+## 🚀 Overview
 
-This project improves traditional Dlib-based blink detection by combining:  
-- **MediaPipe Face Mesh** for 468-point high-speed facial landmark extraction  
-- **Dlib 68-point landmarks** for robustness in difficult conditions  
-- **Eye-region cropping** for focused CNN feature extraction  
-- **Multimodal fusion**: combining eye-crop CNN features + full-face landmark features  
-- **Weighted CrossEntropyLoss** to handle class imbalance  
+This project extends traditional blink detection by combining:
 
-The model predicts **blink status** (open/closed) and can be extended for **drowsiness detection**.
+- **MediaPipe Face Mesh** (468 points) for high-speed facial landmark extraction  
+- **Dlib 68-point landmarks** for robustness under occlusion or poor lighting  
+- **Eye-region cropping** for CNN-based feature extraction  
+- **Multimodal fusion**: eye-crop CNN features + full-face landmark features  
+- **Pupil position tracking**: normalized relative x-position (-1 left → 1 right)  
+- **Head pose estimation**: Yaw (left/right) and Pitch (up/down) using solvePnP  
+
+The system runs in **real-time** on webcam input and provides both **visual feedback** and **numeric outputs**.
 
 ---
 
-## ✨ Features  
+## ✨ Features
 
 - 🔹 Multimodal input: eye-crop images + full-face landmarks  
 - 🔹 Transfer learning with **ResNet18** backbone  
-- 🔹 Weighted loss for imbalanced datasets (Open/Closed Eyes)  
-- 🔹 Real-time webcam inference (extension possible)  
-- 🔹 Training logs saved as CSV for easy monitoring  
+- 🔹 Real-time blink detection (Open/Closed)  
+- 🔹 Pupil-based gaze estimation (-1.0 to 1.0)  
+- 🔹 Head pose angles (Yaw, Pitch)  
+- 🔹 Annotated webcam display with blink status, count, gaze, and head angles  
+- 🔹 GPU/CPU compatible  
 
 ---
 
-## 🧠 Methodology  
+## 🧠 Methodology
 
-### 1. Dataset  
-The model is trained primarily on the **CEW Dataset**:
+### 1. Dataset
+The model is primarily trained on the **CEW Dataset**:
 
 | Dataset | Source | Description |
 |---------|--------|-------------|
-| CEW | [Kaggle](https://www.kaggle.com/datasets/ahamedfarouk/cew-dataset) | Labeled open/closed eye images for training the eye-state classifier |
-| Validation | [Drowness Detection Dataset](https://www.kaggle.com/datasets/norannabil/drowness-detection) | Optional for evaluating blink-based drowsiness |
+| CEW | [Kaggle](https://www.kaggle.com/datasets/ahamedfarouk/cew-dataset) | Labeled open/closed eye images for training |
+| Optional Validation | [Drowsiness Detection Dataset](https://www.kaggle.com/datasets/norannabil/drowness-detection) | Evaluate blink-based drowsiness |
 
-- Open eyes labeled as `1`, Closed eyes labeled as `0`  
-- Class imbalance handled by **weighted CrossEntropyLoss**
+- Open eyes labeled as `1`, closed eyes as `0`  
+- Weighted CrossEntropyLoss used to handle class imbalance  
 
 ---
 
-### 2. Preprocessing  
+### 2. Preprocessing
+
 1. **Facial landmarks extraction**:  
-   - Dlib: 68-point landmarks  
-   - MediaPipe: 468-point landmarks  
-2. **Eye-region cropping** using landmarks 36~47 + padding  
+   - Dlib: 68 points  
+   - MediaPipe: 468 points  
+
+2. **Eye-region cropping** using Dlib landmarks 36~47 + padding  
+
 3. **Image transforms**:
-   - Training: resize, horizontal flip, color jitter, normalization  
-   - Validation: resize + normalization only  
+   - Resize to 224×224  
+   - Normalize with ImageNet mean/std  
 
 ---
 
-### 3. Model Architecture  
+### 3. Model Architecture
 
-**MultiModalBlinkModel**  
+**MultiModalBlinkModel**
 
-- **Eye-crop CNN branch**: ResNet18 (pretrained) → 512-dim features  
-- **Landmark branch**: Fully connected layers → 512-dim features  
-- **Fusion**: Concatenate CNN + landmark features → 256-dim hidden → 2-class output  
-- **Loss**: Weighted CrossEntropyLoss (handles open/closed imbalance)  
+- **Eye-crop CNN branch**: ResNet18 → 512-dim feature  
+- **Landmark branch**: Fully connected layers → 512-dim feature  
+- **Fusion**: Concatenate CNN + landmark → 256-dim hidden → 2-class output (Open/Closed)  
+- **Loss**: Weighted CrossEntropyLoss  
 
 ---
 
-### 4. Training Loop  
+### 4. Inference Pipeline
 
-- Epochs: 30  
-- Batch size: 8  
-- Optimizer: Adam (lr=1e-4)  
-- Device: GPU if available, otherwise CPU  
-- Logs saved to CSV (`train_multitask_log.csv`) with columns:  
-  `epoch`, `train_blink_loss`, `val_blink_loss`, `val_acc`  
+1. Read webcam frame → flip horizontally → convert to grayscale/RGB  
+2. Detect face:
+   - Dlib: bounding box + 68-point landmarks  
+   - MediaPipe: 468-point landmarks  
 
-Example log record:
+3. Crop eye region, compute CNN features  
 
-```csv
-epoch,train_blink_loss,val_blink_loss,val_acc
-1,0.5123,0.4789,0.8421
-2,0.4312,0.4021,0.8679
-...
+4. Compute feature vector from landmarks (normalized by frame width/height)  
+
+5. **Blink Prediction**:
+   - Forward through MultiModalBlinkModel  
+   - Class: 0 → Closed, 1 → Open  
+
+6. **Gaze Estimation**:
+   - Compute relative pupil x-position from landmarks  
+   - Map to range [-1, 1]  
+
+7. **Head Pose Estimation (PnP)**:
+   - Use 6 key 2D points + canonical 3D face model  
+   - Compute rotation vector → convert to Euler angles (Yaw, Pitch)  
+
+8. Annotate frame with:
+   - Blink status, Blink count  
+   - Pupil position  
+   - Head Yaw/Pitch  
+
+---
+
+### 5. Run Example
+
+```bash
+python run_blink_gaze_headpose.py
