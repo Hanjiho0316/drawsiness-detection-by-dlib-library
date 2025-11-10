@@ -107,8 +107,3 @@ The model is primarily trained on the **CEW Dataset**:
    - Head Yaw/Pitch  
 
 ---
-
-### 5. Run Example
-
-```bash
-python run_blink_gaze_headpose.py
