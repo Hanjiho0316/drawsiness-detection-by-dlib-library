@@ -1,67 +1,83 @@
-# Eye Blink Detection using Dlib, MediaPipe, and Transfer Learning
-![Python](https://img.shields.io/badge/python-3.x-blue.svg)
-![OpenCV](https://img.shields.io/badge/OpenCV-Enabled-green.svg)
-![PyTorch](https://img.shields.io/badge/PyTorch-Transfer_Learning-orange.svg)
+# Eye Blink & Drowsiness Detection using Dlib, MediaPipe, and Transfer Learning  
+![Python](https://img.shields.io/badge/python-3.x-blue.svg)  
+![OpenCV](https://img.shields.io/badge/OpenCV-Enabled-green.svg)  
+![PyTorch](https://img.shields.io/badge/PyTorch-Transfer_Learning-orange.svg)  
 ![License](https://img.shields.io/badge/license-MIT-lightgrey.svg)
 
 A deep learning–based **eye blink and drowsiness detection system**  
 that leverages **open datasets**, **Dlib**, and **MediaPipe** for robust eye tracking  
-and uses **transfer learning** for accurate eye state classification.
+and uses **transfer learning** for accurate eye state classification and drowsiness estimation.
 
 ---
 
-## 🚀 Overview
-This project improves upon traditional Dlib-based drowsiness detection by combining:
-- **MediaPipe Face Mesh** for fast and accurate facial landmark extraction  
-- **Dlib** as a fallback face detector in low-light or off-angle cases  
-- **Transfer Learning** using a pre-trained CNN backbone (e.g., MobileNetV2 / EfficientNet)  
-- **Open eye-blink datasets** (e.g., CEW, ZJU Eyeblink, RT-BENE) for robust model training
+## 🚀 Overview  
+This project enhances traditional Dlib-based drowsiness detection by combining:  
+- **MediaPipe Face Mesh** for high-speed facial landmark extraction  
+- **Dlib** as a fallback for robust face detection under difficult conditions  
+- **Transfer Learning** on open eye image datasets (e.g., CEW, ZJU, RT-BENE)  
+- **Additional validation on drowsiness datasets** to assess fatigue levels  
 
-The trained model classifies **eye open/closed states** and detects **blink patterns**  
-in real time through webcam input.
-
----
-
-## ✨ Features
-- 🔹 Multi-source facial landmark detection (MediaPipe + Dlib)
-- 🔹 Eye-region cropping and normalization
-- 🔹 Transfer-learned CNN model for eye-state classification
-- 🔹 Real-time blink and drowsiness detection
-- 🔹 Easily extendable to video fatigue analysis or driver monitoring systems
+The trained model predicts **eye open/closed state** and performs **blink-based drowsiness detection** in real time.
 
 ---
 
-## 🧠 Methodology
-
-### 1. Data
-The model is trained using open datasets such as:
-- **CEW (Closed Eyes in the Wild)**
-- **ZJU Eyeblink Dataset**
-- **RT-BENE (Real-Time Blink Estimation)**
-These datasets provide eye images and blink annotations under various lighting and pose conditions.
-
-### 2. Preprocessing
-- MediaPipe Face Mesh → Extract 468 landmarks  
-- Crop left/right eye patches using eye landmark coordinates  
-- Resize and normalize each patch (e.g., 112×112)  
-- Apply data augmentation for brightness, rotation, and occlusion variations
-
-### 3. Model
-- Backbone: Pre-trained CNN (MobileNetV2, ResNet18, or EfficientNet-B0)
-- Fine-tuned on eye open/closed classification
-- Loss: Binary Cross-Entropy (BCE)
-- Optimizer: AdamW + LR scheduler
-- Optional LSTM or Transformer for blink sequence modeling
-
-### 4. Real-time Detection
-- MediaPipe runs continuously on webcam frames
-- Extracts eyes → feeds them to trained model
-- Calculates open/closed probabilities
-- Uses temporal smoothing to detect blink/drowsiness events
-- Triggers on-screen or sound alerts when prolonged closure is detected
+## ✨ Features  
+- 🔹 Multi-source facial landmark detection (MediaPipe + Dlib)  
+- 🔹 Eye-region cropping & normalization  
+- 🔹 CNN transfer learning for eye-state classification  
+- 🔹 Drowsiness estimation based on blink frequency and eye closure duration  
+- 🔹 Real-time webcam inference with alert system  
 
 ---
 
-## 🧩 Installation
-```bash
-pip install opencv-python dlib mediapipe torch torchvision numpy
+## 🧠 Methodology  
+
+### 1. Data  
+The model was trained and validated using several open datasets:  
+| Purpose | Dataset | Source | Description |
+|----------|----------|--------|-------------|
+| Training | [CEW Dataset](https://www.kaggle.com/datasets/ahamedfarouk/cew-dataset) | Kaggle | Closed Eyes in the Wild – labeled open/closed eye images. |
+| Training | [ZJU Eyeblink Dataset](https://github.com/StephenVFig/ZJU-Eyeblink-Dataset) | ZJU | Blink sequences with head pose variation and glasses. |
+| Training | [RT-BENE](https://github.com/Tobias-Fischer/rt_gene) | ETH Zürich | Real-time blink estimation dataset with annotated eye states. |
+| Validation | [Drowness Detection Dataset](https://www.kaggle.com/datasets/norannabil/drowness-detection) | Kaggle | Used to evaluate model performance on real drowsy subjects. |
+
+These datasets collectively provide a wide range of lighting conditions, facial orientations, and drowsiness levels.
+
+---
+
+### 2. Preprocessing  
+- MediaPipe extracts 468 face landmarks.  
+- Eye regions are cropped using landmark coordinates.  
+- Images are resized and normalized to 112×112.  
+- Data augmentation includes brightness, rotation, and occlusion.  
+
+---
+
+### 3. Model Architecture  
+- Backbone: **MobileNetV2 / EfficientNet-B0 / ResNet-18** (transfer learning)  
+- Output: Binary (Open / Closed) or probability-based Eye-State score  
+- Loss: Binary Cross-Entropy (BCE)  
+- Optimizer: AdamW + CosineAnnealingLR or ReduceLROnPlateau  
+- Optional: Temporal module (LSTM / Transformer) for blink-sequence modeling  
+
+---
+
+### 4. Drowsiness Validation  
+To assess fatigue detection accuracy, validation was performed using the  
+**[Drowness Detection Dataset](https://www.kaggle.com/datasets/norannabil/drowness-detection)** from Kaggle.  
+This dataset includes facial images labeled with different **drowsiness levels**.  
+
+During validation:
+- The trained blink model was used to extract eye-state probabilities per frame.  
+- Features such as **blink frequency**, **PERCLOS** (Percentage of Eye Closure),  
+  and **average closure duration** were computed.  
+- A separate lightweight classifier estimated the drowsiness score.  
+
+```python
+# Example: validation snippet
+from evaluate_drowsiness import evaluate_drowsiness
+
+metrics = evaluate_drowsiness(model, drowness_dataset_path="./datasets/drowness")
+print(metrics)
+# Example output (illustrative only):
+# {'accuracy': 0.93, 'f1_drowsy': 0.91, 'pearson_r': 0.88}
